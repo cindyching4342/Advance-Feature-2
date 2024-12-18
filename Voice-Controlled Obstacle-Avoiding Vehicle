@@ -1,0 +1,182 @@
+#include <SoftwareSerial.h>
+
+// Pin definitions for motor control
+#define ENA 11
+#define IN1 A0
+#define IN2 A1
+#define ENB 10
+#define IN3 A2
+#define IN4 A3
+
+// Infrared sensor pins
+#define IR A4
+
+#define TRIGGER_PIN 13
+#define ECHO_PIN 12
+#define MAX_DISTANCE 300
+
+// Bluetooth module pins (HC-05/HC-06)
+#define RX 2  // SoftwareSerial RX (connect to Bluetooth TX)
+#define TX 3  // SoftwareSerial TX (connect to Bluetooth RX)
+
+SoftwareSerial Bluetooth(RX, TX); // SoftwareSerial for Bluetooth
+
+unsigned long lastCommandTime = 0;    // To track the last command time
+unsigned long commandTimeout = 5000; // Timeout in milliseconds (5 seconds)
+unsigned long lastSensorCheck = 0;   // Track last sensor check
+const unsigned long sensorInterval = 50; // Check sensors every 50ms
+
+volatile long duration = 0; // Ultrasonic measurement duration
+volatile bool measuring = false; // Ultrasonic measurement flag
+
+void setup() {
+  // Motor control pins as output
+  pinMode(ENA, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
+
+  pinMode(TRIGGER_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  // Infrared sensor pin as input
+  pinMode(IR, INPUT);
+
+  // Serial communication for debugging
+  Serial.begin(9600);
+
+  // Initialize Bluetooth communication
+  Bluetooth.begin(9600);
+
+  // Initialize motors to stop
+  stopMotors();
+}
+
+void loop() {
+  unsigned long currentTime = millis();
+
+  // Check for Bluetooth commands
+  if (Bluetooth.available() > 0) {
+    String command = Bluetooth.readString();
+    command.trim(); // Remove leading/trailing spaces
+    lastCommandTime = currentTime; // Update timeout tracker
+
+    // Process commands
+    if (command.equalsIgnoreCase("Move Forward")) {
+      moveForward();
+    } else if (command.equalsIgnoreCase("Move Backward")) {
+      moveBackward();
+    } else if (command.equalsIgnoreCase("Turn Left")) {
+      turnLeft();
+    } else if (command.equalsIgnoreCase("Turn Right")) {
+      turnRight();
+    } else if (command.equalsIgnoreCase("Stop")) {
+      stopMotors();
+    }
+  }
+
+  // Non-blocking sensor checks (ultrasonic + IR sensor)
+  if (currentTime - lastSensorCheck > sensorInterval) {
+    lastSensorCheck = currentTime;
+    checkSensors();
+  }
+
+  // Stop if no command is received within the timeout period
+  if (currentTime - lastCommandTime > commandTimeout) {
+    stopMotors();
+    Serial.println("No command received. Stopping.");
+  }
+}
+
+// Combined sensor checks
+void checkSensors() {
+  // Check ultrasonic sensor
+  digitalWrite(TRIGGER_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIGGER_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIGGER_PIN, LOW);
+
+  duration = pulseIn(ECHO_PIN, HIGH, 30000); // Timeout after 30ms
+  if (duration > 0) {
+    long distance = duration * 0.034 / 2; // Convert to centimeters
+    if (distance > 0 && distance < 15) {
+      moveBackward();
+      delay(500);
+      stopMotors();
+      Serial.println("Obstacle detected by ultrasonic! Stopping.");
+      return; // Avoid checking IR sensor if ultrasonic triggers
+    }
+  }
+
+  // Check IR sensor
+  int IR1 = digitalRead(IR);
+  if (IR1 == LOW) { // Assuming LOW means triggered
+    moveForward();
+    delay(200);
+    stopMotors();
+    Serial.println("Obstacle detected by IR sensor! Stopping.");
+  }
+}
+
+// Function to move forward
+void moveForward() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, 150); // Speed
+  analogWrite(ENB, 150); // Speed
+  Serial.println("Move forward");
+}
+
+// Function to move backward
+void moveBackward() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, 90);
+  analogWrite(ENB, 90);
+  Serial.println("Move backward");
+}
+
+// Function to turn left
+void turnLeft() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, 150);
+  analogWrite(ENB, 150);
+  Serial.println("Turn left");
+  delay(500);
+  stopMotors();
+  
+}
+
+// Function to turn right
+void turnRight() {
+  digitalWrite(IN1, HIGH);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, 150);
+  analogWrite(ENB, 150);
+  Serial.println("Turn right");
+  delay(500);
+  stopMotors();
+}
+
+// Function to stop motors
+void stopMotors() {
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+  Serial.println("Stop");
+}
